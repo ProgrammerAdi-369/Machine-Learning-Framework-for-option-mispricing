@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(where python:*)",
+      "Bash(where python3:*)",
+      "Bash(where py:*)",
+      "Read(//usr/**)",
+      "Read(//usr/local/**)",
+      "Bash(py:*)",
+      "Bash(python3 -c ':*)",
+      "Read(//c/Users/Aditya/AppData/Local/Programs/Python//**)",
+      "Bash(ls /c/Python*)",
+      "Read(//c/Users/Aditya/anaconda3/**)",
+      "Read(//c/Users/Aditya/miniconda3/**)",
+      "Bash(command -v py)"
+    ]
+  }
+}
