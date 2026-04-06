@@ -4,12 +4,12 @@ Implements Layers A–G as specified in Report_plan.md.
 
 Reads:  outputs/full_predictions.parquet   (saved by train.py Phase 6)
         models/xgb_mispricing.joblib        (trained model)
-Writes: outputs/residual_diagnostics.png
-        outputs/feature_importance.png
-        outputs/shap_analysis.png           (if shap installed)
-        outputs/shap_moneyness.png          (if shap installed)
-        outputs/signal_quality.png
-        outputs/temporal_stability.png
+Writes: Analysis_outcomes/residual_diagnostics_<timestamp>.png
+        Analysis_outcomes/feature_importance_<timestamp>.png
+        Analysis_outcomes/shap_analysis_<timestamp>.png      (if shap installed)
+        Analysis_outcomes/shap_moneyness_<timestamp>.png     (if shap installed)
+        Analysis_outcomes/signal_quality_<timestamp>.png
+        Analysis_outcomes/temporal_stability_<timestamp>.png
 
 Column name mapping (actual dataset → plan names used internally):
   Date  →  Date    (kept as-is; plan used lowercase 'date' — we normalise below)
@@ -18,6 +18,7 @@ Column name mapping (actual dataset → plan names used internally):
 
 import os
 import warnings
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -32,7 +33,8 @@ import joblib
 
 warnings.filterwarnings("ignore")
 
-os.makedirs("outputs", exist_ok=True)
+os.makedirs("Analysis_outcomes", exist_ok=True)
+_TS = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # ---------------------------------------------------------------------------
 # Setup — load predictions parquet
@@ -173,9 +175,9 @@ def plot_residual_diagnostics(sub, split_label="Test set"):
     ax6.set_title("Daily mean residual over time\n(red rolling avg should hug zero)")
     ax6.set_xlabel("")
 
-    plt.savefig("outputs/residual_diagnostics.png", dpi=150, bbox_inches="tight")
+    plt.savefig(f"Analysis_outcomes/residual_diagnostics_{_TS}.png", dpi=150, bbox_inches="tight")
     plt.close()
-    print("  Saved outputs/residual_diagnostics.png")
+    print(f"  Saved Analysis_outcomes/residual_diagnostics_{_TS}.png")
 
     # Statistical tests
     print("\nStatistical tests on residuals:")
@@ -288,9 +290,9 @@ def feature_importance_analysis(mdl, feature_cols, sub, label="Test set"):
         ax.tick_params(labelsize=8)
 
     plt.tight_layout()
-    plt.savefig("outputs/feature_importance.png", dpi=150, bbox_inches="tight")
+    plt.savefig(f"Analysis_outcomes/feature_importance_{_TS}.png", dpi=150, bbox_inches="tight")
     plt.close()
-    print("  Saved outputs/feature_importance.png")
+    print(f"  Saved Analysis_outcomes/feature_importance_{_TS}.png")
 
     # SHAP analysis
     try:
@@ -311,9 +313,9 @@ def feature_importance_analysis(mdl, feature_cols, sub, label="Test set"):
         axes[1].set_title("SHAP mean absolute values")
 
         plt.tight_layout()
-        plt.savefig("outputs/shap_analysis.png", dpi=150, bbox_inches="tight")
+        plt.savefig(f"Analysis_outcomes/shap_analysis_{_TS}.png", dpi=150, bbox_inches="tight")
         plt.close()
-        print("  Saved outputs/shap_analysis.png")
+        print(f"  Saved Analysis_outcomes/shap_analysis_{_TS}.png")
 
         # Moneyness SHAP interaction plot
         moneyness_idx = list(feature_cols).index("moneyness")
@@ -327,9 +329,9 @@ def feature_importance_analysis(mdl, feature_cols, sub, label="Test set"):
         plt.title("How moneyness drives predictions\n"
                   "(should be monotone — higher moneyness = higher CE price)")
         plt.tight_layout()
-        plt.savefig("outputs/shap_moneyness.png", dpi=150, bbox_inches="tight")
+        plt.savefig(f"Analysis_outcomes/shap_moneyness_{_TS}.png", dpi=150, bbox_inches="tight")
         plt.close()
-        print("  Saved outputs/shap_moneyness.png")
+        print(f"  Saved Analysis_outcomes/shap_moneyness_{_TS}.png")
 
     except ImportError:
         print("  SHAP not installed. Run: pip install shap")
@@ -422,9 +424,9 @@ def signal_quality_analysis(sub):
     ax.set_ylabel("Mispricing (Rs.)")
 
     plt.tight_layout()
-    plt.savefig("outputs/signal_quality.png", dpi=150, bbox_inches="tight")
+    plt.savefig(f"Analysis_outcomes/signal_quality_{_TS}.png", dpi=150, bbox_inches="tight")
     plt.close()
-    print("  Saved outputs/signal_quality.png")
+    print(f"  Saved Analysis_outcomes/signal_quality_{_TS}.png")
 
     # Signal statistics printout
     sell_signals = signals_df[signals_df["z_score"] >  2]
@@ -512,9 +514,9 @@ def temporal_stability_analysis(full_df, cutoff_date):
     ax_right.legend(loc="upper right", fontsize=8)
 
     plt.tight_layout()
-    plt.savefig("outputs/temporal_stability.png", dpi=150, bbox_inches="tight")
+    plt.savefig(f"Analysis_outcomes/temporal_stability_{_TS}.png", dpi=150, bbox_inches="tight")
     plt.close()
-    print("  Saved outputs/temporal_stability.png")
+    print(f"  Saved Analysis_outcomes/temporal_stability_{_TS}.png")
 
     # Monthly performance table
     print("\nMonthly performance table:")
@@ -601,4 +603,4 @@ def print_model_scorecard(t_metrics, tr_metrics, s_results, full_df):
 print("\n\n=== LAYER G: MODEL SCORECARD ===")
 print_model_scorecard(test_metrics, train_metrics, seg_results, df)
 
-print("\nAll outputs written to outputs/")
+print("\nAll outputs written to Analysis_outcomes/")

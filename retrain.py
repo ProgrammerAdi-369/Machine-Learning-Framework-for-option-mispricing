@@ -14,6 +14,7 @@ Writes: outputs/wf_predictions.parquet    (walk-forward predictions + z-scores)
 
 import os
 import warnings
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import joblib
@@ -24,8 +25,10 @@ from sklearn.metrics import r2_score, mean_squared_error
 import xgboost as xgb
 
 warnings.filterwarnings("ignore")
-os.makedirs("models",  exist_ok=True)
-os.makedirs("outputs", exist_ok=True)
+os.makedirs("models",           exist_ok=True)
+os.makedirs("outputs",          exist_ok=True)
+os.makedirs("Analysis_outcomes", exist_ok=True)
+_TS = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # ---------------------------------------------------------------------------
 # Load and normalise column names
@@ -363,9 +366,9 @@ for ax, col, label, color in [
     ax.legend(fontsize=8)
 
 plt.tight_layout()
-plt.savefig("outputs/fix_comparison_zscore.png", dpi=150, bbox_inches="tight")
+plt.savefig(f"Analysis_outcomes/fix_comparison_zscore_{_TS}.png", dpi=150, bbox_inches="tight")
 plt.close()
-print("Saved outputs/fix_comparison_zscore.png")
+print(f"Saved Analysis_outcomes/fix_comparison_zscore_{_TS}.png")
 
 # ---------------------------------------------------------------------------
 # Temporal stability comparison plot: static vs walk-forward R2 by month
@@ -435,14 +438,14 @@ ax.set_title("Monthly Bias")
 ax.legend(fontsize=9)
 
 plt.tight_layout()
-plt.savefig("outputs/fix_comparison_temporal.png", dpi=150, bbox_inches="tight")
+plt.savefig(f"Analysis_outcomes/fix_comparison_temporal_{_TS}.png", dpi=150, bbox_inches="tight")
 plt.close()
-print("Saved outputs/fix_comparison_temporal.png")
+print(f"Saved Analysis_outcomes/fix_comparison_temporal_{_TS}.png")
 
 print("\nAll fixes applied. Summary of outputs:")
-print("  outputs/wf_predictions.parquet    -- full dataset with all new columns")
-print("  outputs/wf_trading_signals.csv    -- walk-forward signals")
-print("  outputs/fix_comparison_zscore.png -- z-score distribution comparison")
-print("  outputs/fix_comparison_temporal.png -- temporal stability comparison")
+print("  outputs/wf_predictions.parquet                    -- full dataset with all new columns")
+print("  outputs/wf_trading_signals.csv                    -- walk-forward signals")
+print(f"  Analysis_outcomes/fix_comparison_zscore_{_TS}.png    -- z-score distribution comparison")
+print(f"  Analysis_outcomes/fix_comparison_temporal_{_TS}.png  -- temporal stability comparison")
 print("  models/wf_model_<month>.joblib    -- per-month walk-forward models")
 print("  models/xgb_iv_target.joblib       -- IV-as-target model")

@@ -3,13 +3,14 @@ train.py — Phases 5, 6, 7 of the Option Mispricing Pipeline
 Reads:  data/features/cross_sectional.parquet
 Writes: models/xgb_mispricing.joblib
         outputs/trading_signals.csv
-        outcomes/val_feature_importance.png
-        outcomes/val_zscore_distribution.png
-        outcomes/val_zscore_vs_moneyness.png
+        Analysis_outcomes/val_feature_importance_<timestamp>.png
+        Analysis_outcomes/val_zscore_distribution_<timestamp>.png
+        Analysis_outcomes/val_zscore_vs_moneyness_<timestamp>.png
         (Check 4 RMSE by moneyness bucket printed to stdout)
 """
 
 import os
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import joblib
@@ -193,18 +194,19 @@ print(f"\nSignals generated: {len(output):,}  "
       f"SELL: {(output['signal']=='SELL').sum()})")
 
 # ---------------------------------------------------------------------------
-# Validation checks — all outputs to outcomes/
+# Validation checks — all outputs to Analysis_outcomes/
 # ---------------------------------------------------------------------------
-os.makedirs("outcomes", exist_ok=True)
+os.makedirs("Analysis_outcomes", exist_ok=True)
+_TS = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # Check 1: Feature importance
 print("\nRunning validation checks...")
 fig, ax = plt.subplots(figsize=(10, 7))
 xgb.plot_importance(model, ax=ax, max_num_features=15, importance_type="gain")
 plt.tight_layout()
-plt.savefig("outcomes/val_feature_importance.png", dpi=150)
+plt.savefig(f"Analysis_outcomes/val_feature_importance_{_TS}.png", dpi=150)
 plt.close()
-print("  Saved outcomes/val_feature_importance.png")
+print(f"  Saved Analysis_outcomes/val_feature_importance_{_TS}.png")
 
 # Check 2: Z-score distribution
 plt.figure(figsize=(10, 5))
@@ -213,9 +215,9 @@ plt.xlabel("Z-score")
 plt.ylabel("Count")
 plt.title("Cross-sectional Z-score distribution (full dataset)")
 plt.tight_layout()
-plt.savefig("outcomes/val_zscore_distribution.png", dpi=150)
+plt.savefig(f"Analysis_outcomes/val_zscore_distribution_{_TS}.png", dpi=150)
 plt.close()
-print("  Saved outcomes/val_zscore_distribution.png")
+print(f"  Saved Analysis_outcomes/val_zscore_distribution_{_TS}.png")
 
 # Check 3: Mispricing vs moneyness scatter
 plt.figure(figsize=(10, 6))
@@ -225,9 +227,9 @@ plt.ylabel("Z-score")
 plt.title("Z-score vs Moneyness — expect random scatter (no curve)")
 plt.axhline(0, color="red", linewidth=0.8, linestyle="--")
 plt.tight_layout()
-plt.savefig("outcomes/val_zscore_vs_moneyness.png", dpi=150)
+plt.savefig(f"Analysis_outcomes/val_zscore_vs_moneyness_{_TS}.png", dpi=150)
 plt.close()
-print("  Saved outcomes/val_zscore_vs_moneyness.png")
+print(f"  Saved Analysis_outcomes/val_zscore_vs_moneyness_{_TS}.png")
 
 # Check 4: Out-of-time RMSE by moneyness bucket
 print("\nCheck 4: Out-of-time RMSE by moneyness bucket")

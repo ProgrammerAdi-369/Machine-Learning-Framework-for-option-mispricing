@@ -12,11 +12,12 @@ Checks:
   - Missing values
   - Transformation recommendations (raw vs log)
 
-All figures saved to: outcomes/
+All figures saved to: Visualizations/
 """
 
 import os
 import warnings
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -33,8 +34,10 @@ warnings.filterwarnings("ignore")
 # CONFIG
 # ─────────────────────────────────────────────
 PARQUET_PATH = "data/features/cross_sectional.parquet"
-OUT_DIR      = "outcomes"
+OUT_DIR      = "Visualizations"
 os.makedirs(OUT_DIR, exist_ok=True)
+
+_TS = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 PALETTE  = "muted"
 FIG_DPI  = 150
@@ -50,7 +53,8 @@ MODEL_FEATURES = [
 
 
 def save(fig, name):
-    path = os.path.join(OUT_DIR, name)
+    base, ext = os.path.splitext(name)
+    path = os.path.join(OUT_DIR, f"{base}_{_TS}{ext}")
     fig.savefig(path, dpi=FIG_DPI, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
