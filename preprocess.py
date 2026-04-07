@@ -47,41 +47,98 @@ os.makedirs(f"{OUT_DIR}/features", exist_ok=True)
 # ─────────────────────────────────────────────
 
 def fix_date_column(df, fname):
-    """Handle multiple date formats found across NSE monthly files:
-    - datetime64: already parsed (most files)
-    - int/float DDMMYY: e.g. 10226 -> 01/02/26 -> 2026-02-01  (FEB26 file)
-    - int Excel serial: e.g. 44197 -> 2021-01-01 (fallback)
+    """Handle all date formats found across NSE monthly files:
+    - datetime64        : already parsed by pandas read_excel (ideal case)
+    - string DD-MM-YYYY : e.g. "01-08-2025"  (Dataset1 / newer APR25-style files)
+    - string DD/MM/YYYY : e.g. "01/08/2025"  (alternate string variant)
+    - int/float DDMMYY  : e.g. 10226         (NSE FEB26 quirk, max <= 9,999,999)
+    - float Excel serial: e.g. 45139.0       (Dataset2 / older 2023-style files)
     """
     col = df["Date"]
+
+    # ── Already datetime — nothing to do ─────────────────────────────────
     if pd.api.types.is_datetime64_any_dtype(col):
         return df
 
-    # Try DDMMYY integer format first (NSE quirk seen in FEB26 file)
     non_null = col.dropna()
-    if len(non_null) and non_null.max() <= 9999999:
+    if len(non_null) == 0:
+        print(f"  [{fname}] WARNING: Date column is entirely null!")
+        return df
+
+    # Inspect the first non-null value to decide which branch to take
+    sample_val = non_null.iloc[0]
+
+    # ── Branch 1: string dates ────────────────────────────────────────────
+    # Must check this BEFORE any numeric comparison to avoid TypeError
+    if isinstance(sample_val, str):
+        # Try explicit formats in order of likelihood
+        for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%b-%Y"):
+            parsed = pd.to_datetime(col, format=fmt, errors="coerce")
+            if parsed.notna().mean() > 0.8:
+                df["Date"] = parsed
+                print(f"  [{fname}] Parsed string dates (format='{fmt}'). "
+                      f"Sample: {df['Date'].dropna().iloc[0].date()}")
+                return df
+
+        # Last resort: let pandas infer the string format automatically
+        parsed = pd.to_datetime(col, errors="coerce")
+        df["Date"] = parsed
+        sample = df["Date"].dropna()
+        valid_pct = parsed.notna().mean()
+        print(f"  [{fname}] Parsed string dates via auto-infer "
+              f"(valid={valid_pct:.1%}). "
+              f"Sample: {sample.iloc[0].date() if len(sample) else 'N/A'}")
+        return df
+
+    # ── Branch 2: numeric dates (int or float) ────────────────────────────
+    # Safe to call .max() now because we confirmed sample_val is not a string
+    try:
+        numeric_max = float(non_null.max())
+    except (TypeError, ValueError):
+        # Cannot determine numeric type — fall through to generic parse
+        df["Date"] = pd.to_datetime(col, errors="coerce")
+        print(f"  [{fname}] Date fallback parse (non-numeric, non-string).")
+        return df
+
+    # Sub-branch 2a: DDMMYY 6-digit integer, values <= 9,999,999
+    # e.g. 10226 = 01/02/26,  311225 = 31/12/25
+    if numeric_max <= 9_999_999:
         try:
-            date_strs = non_null.astype(float).astype("Int64").astype(str).str.zfill(6)
+            date_strs = (
+                col.astype(float)
+                   .astype("Int64")
+                   .astype(str)
+                   .str.zfill(6)
+            )
             test = pd.to_datetime(date_strs, format="%d%m%y", errors="coerce")
-            valid_pct = test.notna().mean()
-            if valid_pct > 0.8:
-                df["Date"] = pd.to_datetime(
-                    col.dropna().astype(float).astype("Int64").astype(str).str.zfill(6),
-                    format="%d%m%y", errors="coerce"
-                ).reindex(df.index)
-                sample = df["Date"].dropna().iloc[0]
-                print(f"  [{fname}] Converted DDMMYY integer dates. Sample: {sample.date()}")
+            if test.notna().mean() > 0.8:
+                df["Date"] = test
+                print(f"  [{fname}] Converted DDMMYY integer dates. "
+                      f"Sample: {df['Date'].dropna().iloc[0].date()}")
                 return df
         except Exception:
-            pass
+            pass  # Fall through to generic parse
 
-    # Fallback: Excel serial date (days since 1899-12-30)
-    try:
-        df["Date"] = pd.to_datetime(col, unit="D", origin="1899-12-30", errors="coerce")
-        sample = df["Date"].dropna().iloc[0]
-        print(f"  [{fname}] Converted Excel serial dates. Sample: {sample.date()}")
-    except Exception as e:
-        df["Date"] = pd.to_datetime(col, errors="coerce")
-        print(f"  [{fname}] Date fallback parse. Error was: {e}")
+    # Sub-branch 2b: Excel serial float, values > 40,000 (year ~2009 onwards)
+    # 45139.0 = 2023-08-01,  46000 ≈ 2025-12-xx
+    if numeric_max > 40_000:
+        try:
+            parsed = pd.to_datetime(
+                col, unit="D", origin="1899-12-30", errors="coerce"
+            )
+            if parsed.notna().mean() > 0.8:
+                df["Date"] = parsed
+                print(f"  [{fname}] Converted Excel serial dates. "
+                      f"Sample: {df['Date'].dropna().iloc[0].date()}")
+                return df
+        except Exception as e:
+            print(f"  [{fname}] Excel serial conversion failed: {e}")
+
+    # ── Final fallback ────────────────────────────────────────────────────
+    df["Date"] = pd.to_datetime(col, errors="coerce")
+    sample = df["Date"].dropna()
+    print(f"  [{fname}] Date generic fallback parse. "
+          f"Sample: {sample.iloc[0].date() if len(sample) else 'N/A'}")
     return df
 
 
@@ -118,6 +175,25 @@ def load_all_files():
     # Drop rows with NaN in critical columns
     master = master.dropna(subset=["Date", "UNDRLNG_ST"])
     master = master[master["CLOSE_PRIC"].notna() | master["SETTLEMENT"].notna()]
+
+    # ── Date range validation — catches silent parse failures ─────────────
+    date_summary = (
+        master.groupby("source_file")["Date"]
+        .agg(["min", "max", "count"])
+        .rename(columns={"min": "earliest", "max": "latest", "count": "valid_rows"})
+    )
+    print("\nDate range per source file (verify these look correct):")
+    print(date_summary.to_string())
+
+    # Flag files where fewer than 100 dates parsed correctly
+    # (100 is a conservative threshold — any real month has 2,000+ rows)
+    bad_files = date_summary[date_summary["valid_rows"] < 100]
+    if len(bad_files):
+        print(f"\nWARNING: These files have suspiciously few valid dates "
+              f"— date parsing likely failed:")
+        print(bad_files.to_string())
+        print("ACTION: Check fix_date_column for a new date format in these files.")
+    # ─────────────────────────────────────────────────────────────────────
 
     # Fill NaN OI with 0
     master["OI_NO_CON"] = master["OI_NO_CON"].fillna(0)
@@ -401,13 +477,17 @@ def build_cross_sectional_dataset(df):
     df["OI_normalized"] = df["OI_NO_CON"] / df["avg_OI_day"].replace(0, np.nan)
 
     # Volume normalization: per-day average (column name may vary)
-    vol_col = next((c for c in df.columns if c.upper() in ("VOLUME", "TRADED_QTY", "TRDNG_VALUE", "TRADED_QUA")), None)
+    # Scan for whichever volume column name this file set uses
+    _VOL_CANDIDATES = {"VOLUME", "TRADED_QTY", "TRDNG_VALUE", "TRADED_QUA"}
+    vol_col = next((c for c in df.columns if c.upper() in _VOL_CANDIDATES), None)
     if vol_col:
+        print(f"  Volume column detected: '{vol_col}'")
         df["avg_vol_day"]       = df.groupby("Date")[vol_col].transform("mean")
         df["Volume_normalized"] = df[vol_col] / df["avg_vol_day"].replace(0, np.nan)
         df = df.rename(columns={vol_col: "VOLUME"})
     else:
-        print("  WARNING: No volume column found -- Volume_normalized will be NaN")
+        print(f"  WARNING: No volume column found. Checked: {_VOL_CANDIDATES}")
+        print(f"  Available columns: {list(df.columns)}")
         df["avg_vol_day"]       = np.nan
         df["Volume_normalized"] = np.nan
 
@@ -466,6 +546,25 @@ def main():
     master = compute_hv_spread(master)
     master = build_cross_sectional_dataset(master)
     master = drop_critical_nans(master)
+
+    # ── Scope to study period: retain only Apr 2025 – Mar 2026 ───────────
+    STUDY_START = pd.Timestamp("2025-04-01")
+    STUDY_END   = pd.Timestamp("2026-03-31")
+    before = len(master)
+    master = master[
+        (master["Date"] >= STUDY_START) &
+        (master["Date"] <= STUDY_END)
+    ]
+    dropped = before - len(master)
+    print(f"\nDate-range filter ({STUDY_START.date()} to {STUDY_END.date()}): "
+          f"kept {len(master):,} rows, dropped {dropped:,}")
+    if len(master) == 0:
+        raise ValueError(
+            "Date-range filter removed ALL rows. "
+            "Check that your files actually contain data in the Apr 2025–Mar 2026 window."
+        )
+    # ─────────────────────────────────────────────────────────────────────
+
     master.to_parquet(f"{OUT_DIR}/features/cross_sectional.parquet", index=False)
     print(f"Saved: {OUT_DIR}/features/cross_sectional.parquet")
 

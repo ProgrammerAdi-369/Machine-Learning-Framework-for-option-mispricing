@@ -48,18 +48,19 @@ This pipeline:
 
 ### Dataset at a glance
 
-| Attribute              | Value                                                  |
-| ---------------------- | ------------------------------------------------------ |
-| Underlying             | BANKNIFTY (NSE Bank Nifty Index)                       |
-| Instrument             | European-style index options (weekly + monthly expiry) |
-| Date range             | 1 April 2025 – 30 March 2026                           |
-| Trading days           | ~240                                                   |
-| Raw rows (post-filter) | 70,267                                                 |
-| Avg contracts/day      | ~293                                                   |
-| Option types           | CE (Call) and PE (Put), ~50% each                      |
-| Strike range           | 17,500 – 47,500                                        |
-| Moneyness range        | 0.80 – 1.20 (filtered)                                 |
-| DTE range              | 1 – 90 days                                            |
+| Attribute              | Value                                                             |
+| ---------------------- | ----------------------------------------------------------------- |
+| Underlying             | BANKNIFTY (NSE Bank Nifty Index)                                  |
+| Instrument             | European-style index options (weekly + monthly expiry)            |
+| Study period           | 1 April 2025 – 30 March 2026                                      |
+| Input files            | 35 monthly `.xlsx` files spanning Apr 2023 – Mar 2026            |
+| Trading days           | ~240 (within study period)                                        |
+| Raw rows (post-filter) | ~70,000+ (study period only; 2023/2024 files used for HV warmup) |
+| Avg contracts/day      | ~293                                                              |
+| Option types           | CE (Call) and PE (Put), ~50% each                                 |
+| Strike range           | 17,500 – 47,500                                                   |
+| Moneyness range        | 0.80 – 1.20 (filtered)                                            |
+| DTE range              | 1 – 90 days                                                       |
 
 ---
 
@@ -185,8 +186,13 @@ This pipeline:
   ├────────────────────────────────────────────────────────────────────────┤
   │                                                                        │
   │  Phase 1 ─ Load & merge                                                │
-  │    • Read 12 BANKNIFTY/*.xlsx files                                    │
-  │    • Normalise date formats (NSE uses DDMMYY integers + Excel serials) │
+  │    • Read all BANKNIFTY/*.xlsx files (35 files, Apr 2023 – Mar 2026)  │
+  │    • Normalise date formats across four formats:                       │
+  │        - datetime64 (already parsed by openpyxl)                      │
+  │        - String DD-MM-YYYY / DD/MM/YYYY (Dataset1 / newer files)      │
+  │        - Integer DDMMYY (NSE FEB26 quirk)                             │
+  │        - Float Excel serial (Dataset2 / older 2023 files)             │
+  │    • Validate date ranges per file — flags files with < 100 valid rows │
   │    • Infer spot price from ATM strike                                  │
   │    • Save: data/raw/master_raw.parquet                                 │
   │                                                                        │
@@ -213,7 +219,10 @@ This pipeline:
   │    • OI_normalized, Volume_normalized : row / daily average            │
   │    • IV_rank   : within-day IV percentile                              │
   │    • log_price : log(close + 1)   ← MODEL TARGET                      │
-  │    • Save: data/features/cross_sectional.parquet  (70,267 rows)       │
+  │    • Date-range filter: keep only Apr 2025 – Mar 2026 rows            │
+  │      (2023/2024 data improves HV_20 warmup but is excluded from       │
+  │       the final feature set)                                           │
+  │    • Save: data/features/cross_sectional.parquet                      │
   │                                                                        │
   └────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -317,10 +326,18 @@ This pipeline:
 option-mispricing-pipeline/
 │
 ├── BANKNIFTY/                        # Raw NSE option chain data (source files)
-│   ├── BANK_NIFTY_APR25.xlsx
+│   │                                 # Three naming formats across two datasets:
+│   │
+│   │   Dataset1 — Study period (Apr 2025 – Mar 2026), string DD-MM-YYYY dates
+│   ├── BANK_NIFTY_APR25.xlsx         # BANK_NIFTY_<MON><YY>.xlsx  (12 files)
 │   ├── BANK_NIFTY_MAY25.xlsx
 │   ├── ...
-│   └── BANK_NIFTY_MAR26.xlsx         # 12 files total
+│   └── BANK_NIFTY_MAR26.xlsx
+│   │
+│   │   Dataset2 — Historical data (Apr 2023 – Mar 2025), Excel serial dates
+│   ├── BANK_NIFTY_April2023.xlsx     # BANK_NIFTY_<Month><YYYY>.xlsx  (2023 files)
+│   ├── BANK_NIFTY_Aug2024.xlsx       # BANK_NIFTY_<Mon><YYYY>.xlsx    (2024 files)
+│   └── ...                           # 23 files total; used for HV_20 warmup only
 │
 ├── data/                             # Intermediate pipeline data
 │   ├── raw/
@@ -360,7 +377,8 @@ option-mispricing-pipeline/
 ├── Blueprint.md                      # Detailed phased implementation plan
 ├── QuickStart.md                     # 4-step execution guide
 ├── Report_plan.md                    # Accuracy analysis methodology
-└── fix.md                            # Problem diagnosis + fix specification
+├── fix.md                            # Problem diagnosis + fix specification
+└── fix_guide_preprocess_multiformat.md  # Multi-format date parsing fix guide
 ```
 
 ---
@@ -398,7 +416,12 @@ pip install shap
 
 ### Verify the data directory
 
-Ensure the `BANKNIFTY/` folder contains the 12 monthly `.xlsx` files before running `preprocess.py`.
+Ensure the `BANKNIFTY/` folder contains the monthly `.xlsx` files before running `preprocess.py`. The pipeline accepts two naming formats:
+
+- **Dataset1 (study period):** `BANK_NIFTY_APR25.xlsx` … `BANK_NIFTY_MAR26.xlsx` — 12 files, Apr 2025 – Mar 2026
+- **Dataset2 (historical):** `BANK_NIFTY_April2023.xlsx`, `BANK_NIFTY_Aug2024.xlsx`, etc. — 2023/2024 files used for HV warmup
+
+All `.xlsx` files in the folder are loaded automatically regardless of naming convention. Only the 12 study-period files are required; the older files improve `HV_20` accuracy but are optional.
 
 ---
 
@@ -425,12 +448,13 @@ python data_visualization.py
 
 ### What to check after each step
 
-| Step                 | Key output                              | Check                                       |
-| -------------------- | --------------------------------------- | ------------------------------------------- |
-| preprocess.py        | `data/features/cross_sectional.parquet` | ~70,000 rows, no NaN in IV or ATM_IV        |
-| train.py             | `outputs/full_predictions.parquet`      | Test R² printed to stdout should be > 0.90  |
-| accuracy_analysis.py | stdout scorecard                        | "0 critical failures" under Layer G         |
-| retrain.py           | `outputs/wf_trading_signals.csv`        | Walk-forward z-score std should be ~0.8–1.0 |
+| Step                 | Key output                              | Check                                                         |
+| -------------------- | --------------------------------------- | ------------------------------------------------------------- |
+| preprocess.py        | `data/features/cross_sectional.parquet` | Rows within Apr 2025–Mar 2026; no NaN in IV or ATM_IV        |
+| preprocess.py        | stdout date range table                 | Every file shows sensible earliest/latest dates               |
+| train.py             | `outputs/full_predictions.parquet`      | Test R² printed to stdout should be > 0.90                    |
+| accuracy_analysis.py | stdout scorecard                        | "0 critical failures" under Layer G                           |
+| retrain.py           | `outputs/wf_trading_signals.csv`        | Walk-forward z-score std should be ~0.8–1.0                   |
 
 ### Preferred output files
 
@@ -447,6 +471,15 @@ After running all steps, use these files for downstream analysis:
 ### Source
 
 Monthly option chain files from NSE (National Stock Exchange of India) for the BANKNIFTY index. Each file covers one calendar month and contains daily end-of-day snapshots of all listed BANKNIFTY options with their strike, expiry, close price, open interest, and volume.
+
+Two distinct file formats are present in `BANKNIFTY/`:
+
+| Dataset   | File naming example         | Date format in file       | Coverage              | Role in pipeline             |
+| --------- | --------------------------- | ------------------------- | --------------------- | ---------------------------- |
+| Dataset1  | `BANK_NIFTY_APR25.xlsx`     | String `DD-MM-YYYY`       | Apr 2025 – Mar 2026   | Study period — model input   |
+| Dataset2  | `BANK_NIFTY_April2023.xlsx` | Float Excel serial        | Apr 2023 – Mar 2025   | HV_20 warmup only            |
+
+`preprocess.py` auto-detects the date format per file. The final `cross_sectional.parquet` is scoped to the study period (Apr 2025 – Mar 2026) via a post-feature date-range filter; Dataset2 rows are used to compute the 20-day rolling historical volatility for early April 2025 but are then excluded.
 
 ### Preprocessing filters
 
@@ -813,6 +846,11 @@ IV_MAX          = 2.0      # Implied volatility ceiling (200%)
 MIN_ROWS_PER_DAY = 10      # Minimum contracts per date (sparse date filter)
 HV_WINDOW       = 20       # Rolling window for realised volatility (trading days)
 N_JOBS          = -1       # Parallelisation cores (-1 = all available)
+
+# Study period filter (applied after feature engineering in main())
+STUDY_START     = "2025-04-01"   # First date kept in cross_sectional.parquet
+STUDY_END       = "2026-03-31"   # Last date kept in cross_sectional.parquet
+# Files outside this range are still loaded — they improve HV_20 warmup
 ```
 
 ### train.py
@@ -858,3 +896,7 @@ When the market is quiet and daily cross-sectional variance is low, z-score norm
 ### No intraday updates
 
 The pipeline operates on end-of-day data. Signals are generated once per day and are not updated intraday. Conditions can change significantly between the signal generation time and actual trade execution.
+
+### Adding new monthly files
+
+When adding a new month's `.xlsx` file to `BANKNIFTY/`, ensure the date column uses a format already handled by `fix_date_column` in `preprocess.py` (DD-MM-YYYY string, DDMMYY integer, or Excel serial float). If the console output shows `"Date generic fallback parse"` for a new file, inspect its raw Date column and add a new format branch. See `fix_guide_preprocess_multiformat.md` for the full guide.
