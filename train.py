@@ -10,6 +10,7 @@ Writes: models/xgb_mispricing.joblib
 """
 
 import os
+import json
 from datetime import datetime
 import numpy as np
 import pandas as pd
@@ -121,6 +122,19 @@ model.fit(
 
 joblib.dump(model, "models/xgb_mispricing.joblib")
 print(f"\nModel saved. Best iteration: {model.best_iteration}")
+
+# Save clip bounds for use by daily_run.py (must match training-time values)
+clip_bounds = {
+    "IV_relative":       [float(X_train["IV_relative"].quantile(0.01)),
+                          float(X_train["IV_relative"].quantile(0.99))],
+    "OI_normalized":     [float(X_train["OI_normalized"].quantile(0.01)),
+                          float(X_train["OI_normalized"].quantile(0.99))],
+    "Volume_normalized": [float(X_train["Volume_normalized"].quantile(0.01)),
+                          float(X_train["Volume_normalized"].quantile(0.99))],
+}
+with open("models/clip_bounds.json", "w") as _f:
+    json.dump(clip_bounds, _f, indent=2)
+print("Saved models/clip_bounds.json")
 
 # Quick test-set metrics
 y_pred_test = model.predict(X_test)

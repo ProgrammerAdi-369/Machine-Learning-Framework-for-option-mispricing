@@ -21,6 +21,7 @@ A machine learning pipeline for detecting mispriced BANKNIFTY options on the NSE
 13. [Output Reference](#13-output-reference)
 14. [Configuration Reference](#14-configuration-reference)
 15. [Known Limitations](#15-known-limitations)
+16. [Dashboard](#16-dashboard)
 
 ---
 
@@ -156,6 +157,14 @@ This pipeline:
  ┌─────────────────────────────────────────────────────────────────────────┐
  │                       VISUALISATION LAYER                               │
  │  data_visualization.py  →  Visualizations/*.png  (14 diagnostic plots) │
+ └─────────────────────────────────────────────────────────────────────────┘
+
+ ┌─────────────────────────────────────────────────────────────────────────┐
+ │                         DASHBOARD LAYER                                 │
+ │  dashboard/app.py  (Streamlit)                                          │
+ │  ├── Reads outputs/*.parquet + outputs/*.csv  (read-only, cached)       │
+ │  ├── KPI cards · Top signals table · Z-score histogram                  │
+ │  └── Monthly R² trend chart                                             │
  └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -900,3 +909,59 @@ The pipeline operates on end-of-day data. Signals are generated once per day and
 ### Adding new monthly files
 
 When adding a new month's `.xlsx` file to `BANKNIFTY/`, ensure the date column uses a format already handled by `fix_date_column` in `preprocess.py` (DD-MM-YYYY string, DDMMYY integer, or Excel serial float). If the console output shows `"Date generic fallback parse"` for a new file, inspect its raw Date column and add a new format branch. See `fix_guide_preprocess_multiformat.md` for the full guide.
+
+---
+
+## 16. Dashboard
+
+A Streamlit dashboard for daily review of pipeline output. It reads directly from the parquet/CSV files produced by the pipeline — it never re-runs the pipeline itself.
+
+### Running
+
+```bash
+# From the project root (uses the existing .venv)
+.venv/Scripts/streamlit run dashboard/app.py
+```
+
+The app opens at `http://localhost:8501`.
+
+### Panels
+
+| Panel | Description |
+| ----- | ----------- |
+| KPI Cards | Total signals, BUY count, SELL count for the selected date |
+| Top Signals Table | Top 10 contracts ranked by absolute z-score, color-coded BUY/SELL |
+| Z-Score Distribution | Histogram of all z-scores for the selected date with ±2 threshold lines |
+| Monthly R² Trend | Line chart of model R² per month across the full study period |
+
+### Controls (sidebar)
+
+- **Model** — toggle between Walk-Forward (recommended, falls back to Static if WF files are absent) and Static model
+- **Trading Date** — date picker restricted to dates that actually have signals
+- **Refresh Data** button — clears the Streamlit data cache (use after re-running the pipeline)
+
+### File structure
+
+```
+dashboard/
+├── app.py                    ← main entry point, layout assembly
+├── data_loader.py            ← @st.cache_data loaders + column normalization
+├── components/
+│   ├── kpi_cards.py          ← Panel 1: KPI metric cards
+│   ├── signals_table.py      ← Panel 2: top 10 signals table
+│   ├── zscore_chart.py       ← Panel 3: z-score histogram
+│   └── performance_chart.py  ← Panel 4: monthly R² line chart
+├── utils.py                  ← shared formatters
+└── requirements.txt          ← streamlit, pandas, plotly, pyarrow, scikit-learn
+```
+
+### Data files read
+
+| File | Used for |
+| ---- | -------- |
+| `outputs/full_predictions.parquet` | Static model predictions and z-scores |
+| `outputs/trading_signals.csv` | Static model BUY/SELL signals |
+| `outputs/wf_predictions.parquet` | Walk-forward model predictions (if present) |
+| `outputs/wf_trading_signals.csv` | Walk-forward BUY/SELL signals (if present) |
+
+If walk-forward files are missing, the dashboard falls back to the static model files automatically.
