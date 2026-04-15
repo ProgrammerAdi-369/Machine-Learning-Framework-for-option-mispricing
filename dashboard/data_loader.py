@@ -90,27 +90,49 @@ def load_signals(model: str = "static") -> pd.DataFrame:
 @st.cache_data
 def load_monthly_r2(model: str = "static") -> pd.DataFrame:
     df = load_predictions(model)
-    if df.empty or "close_price" not in df.columns or "predicted_price" not in df.columns:
+    if df.empty:
         return pd.DataFrame(columns=["month", "r2"])
 
-    df = df.dropna(subset=["close_price", "predicted_price"])
+    # Use log-price space — this is what the model was trained to minimise.
+    # R² in raw rupee price space is unreliable for a log-normal asset (skew ~7.5):
+    # a few expensive contracts dominate SS_tot and monthly R² can fall well below 0.5,
+    # making the chart appear blank against the fixed [0.5, 1.0] y-axis.
+    actual_col = "log_price"
+
+    if model == "wf" and "wf_predicted_log_price" in df.columns:
+        pred_col = "wf_predicted_log_price"
+    elif "predicted_log_price" in df.columns:
+        pred_col = "predicted_log_price"
+    else:
+        print("[data_loader] No predicted log-price column found for monthly R²")
+        return pd.DataFrame(columns=["month", "r2"])
+
+    if actual_col not in df.columns:
+        print(f"[data_loader] '{actual_col}' column missing from predictions")
+        return pd.DataFrame(columns=["month", "r2"])
+
+    df = df.dropna(subset=[actual_col, pred_col])
+    if df.empty:
+        return pd.DataFrame(columns=["month", "r2"])
+
+    df = df.copy()
     df["month"] = df["date"].dt.to_period("M")
 
     def safe_r2(g):
-        g = g.dropna(subset=["close_price", "predicted_price"])
+        g = g.dropna(subset=[actual_col, pred_col])
         if len(g) < 10:
             return None
         try:
-            return r2_score(g["close_price"], g["predicted_price"])
+            return r2_score(g[actual_col], g[pred_col])
         except Exception:
             return None
 
-    result = (
-        df.groupby("month")
-        .apply(safe_r2)
-        .dropna()
-        .reset_index()
-    )
+    grouped = df.groupby("month").apply(safe_r2)
+    grouped = grouped.dropna()
+    if grouped.empty:
+        return pd.DataFrame(columns=["month", "r2"])
+
+    result = grouped.reset_index()
     result.columns = ["month", "r2"]
     result["month"] = result["month"].astype(str)
     return result

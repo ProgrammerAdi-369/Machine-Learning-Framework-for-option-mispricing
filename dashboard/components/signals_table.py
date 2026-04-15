@@ -5,27 +5,36 @@ import pandas as pd
 def render_signals_table(day_signals):
     st.subheader("Top Signals")
 
-    display_cols = ["strike", "expiry", "option_type", "close_price",
-                    "predicted_price", "z_score", "signal"]
+    df = day_signals.copy()
 
-    available = [c for c in display_cols if c in day_signals.columns]
-    df = day_signals[available].copy()
+    # Normalise column names so the table works for both static and walk-forward signals.
+    # Static signals use 'predicted_price' and 'z_score'.
+    # Walk-forward signals use 'wf_predicted_price' and 'wf_z_score'.
+    if "wf_predicted_price" in df.columns and "predicted_price" not in df.columns:
+        df = df.rename(columns={"wf_predicted_price": "predicted_price"})
+    if "wf_z_score" in df.columns and "z_score" not in df.columns:
+        df = df.rename(columns={"wf_z_score": "z_score"})
 
-    # Sort by absolute z-score, top 10
+    display_cols = ["strike", "option_type", "close_price",
+                    "predicted_price", "z_score", "DTE", "signal"]
+
+    available = [c for c in display_cols if c in df.columns]
+    df = df[available].copy()
+
+    # Sort by absolute z-score descending, top 10
     if "z_score" in df.columns:
         df = df.reindex(df["z_score"].abs().sort_values(ascending=False).index).head(10)
+    else:
+        df = df.head(10)
 
     # Format columns
-    if "z_score" in df.columns:
-        df["z_score"] = df["z_score"].round(2)
-    if "close_price" in df.columns:
-        df["close_price"] = df["close_price"].round(2)
-    if "predicted_price" in df.columns:
-        df["predicted_price"] = df["predicted_price"].round(2)
+    for col, decimals in [("z_score", 2), ("close_price", 2), ("predicted_price", 2)]:
+        if col in df.columns:
+            df[col] = df[col].round(decimals)
     if "strike" in df.columns:
         df["strike"] = df["strike"].astype(int)
-    if "expiry" in df.columns:
-        df["expiry"] = pd.to_datetime(df["expiry"]).dt.strftime("%d %b %Y")
+    if "DTE" in df.columns:
+        df["DTE"] = df["DTE"].astype(int)
 
     def color_signal(val):
         if val == "BUY":

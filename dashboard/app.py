@@ -90,7 +90,7 @@ with tab_hist:
     with col_left:
         render_signals_table(day_signals)
     with col_right:
-        render_zscore_chart(day_pred)
+        render_zscore_chart(day_pred, model_key)
 
     st.divider()
 
